@@ -259,7 +259,7 @@ min_partition_size = TOTAL_DATASET_SIZE // NUM_CLIENTS // 10  # la taille minima
 
 partitioner = DirichletPartitioner( # créer un système qui découpe le dataset entre les clients
     num_partitions=NUM_CLIENTS, #nombre de clients
-    partition_by="label",  #
+    partition_by="label",  #on fait le partitionnnement des données pour les clients selon les labels
     alpha=0.5,#controle le niveau de deséquilibre des données entre les clients , plus alpha est petit plus clients tres diffirents
     min_partition_size=min_partition_size,
     self_balancing=True,# evite qu'un client reçoive trop ou peu de données
@@ -281,16 +281,16 @@ centralized_testset = mnist_fds.load_split("test").to_tf_dataset( # charge le da
 # 8. Définition de la stratégie FedAvg
 # ============================================================
 
-strategy = fl.server.strategy.FedAvg(
-    fraction_fit=FRACTION_FIT,
-    fraction_evaluate=FRACTION_EVALUATE,
+strategy = fl.server.strategy.FedAvg( # crée la startegie federated averaging utilisée par le serveur Flower
+    fraction_fit=FRACTION_FIT,# pourcentage de clients utilisés pour l'entrainement à chaque round
+    fraction_evaluate=FRACTION_EVALUATE, # pourcentage de clients utilisés pour l'entrainement à chaque round
 
-    min_fit_clients=max(1, int(NUM_CLIENTS * FRACTION_FIT)),
-    min_evaluate_clients=max(1, int(NUM_CLIENTS * FRACTION_EVALUATE)),
-    min_available_clients=NUM_CLIENTS,
+    min_fit_clients=max(1, int(NUM_CLIENTS * FRACTION_FIT)),#nombre de clients min pour entrainer 
+    min_evaluate_clients=max(1, int(NUM_CLIENTS * FRACTION_EVALUATE)),#nombre de clients min pour tester 
+    min_available_clients=NUM_CLIENTS,# attendre la dispo de tout les clients avant de commencer 
 
-    evaluate_metrics_aggregation_fn=weighted_average,
-    evaluate_fn=get_evaluate_fn(centralized_testset),
+    evaluate_metrics_aggregation_fn=weighted_average,# utilise la fonction weighted_average pour calculer l'accuracy globale 
+    evaluate_fn=get_evaluate_fn(centralized_testset), # utilise la finction d'evaluation serveur définie avant 
 )
 
 
@@ -298,9 +298,9 @@ strategy = fl.server.strategy.FedAvg(
 # 9. Ressources utilisées par chaque client simulé
 # ============================================================
 
-client_resources = {
-    "num_cpus": 1,
-    "num_gpus": 1 if tf.config.list_physical_devices("GPU") else 0,
+client_resources = { # définit les ressources utilisées par chaque client
+    "num_cpus": 1, # 1cpu /client 
+    "num_gpus": 1 if tf.config.list_physical_devices("GPU") else 0,#si un gpu existe utiliser un gpu sinon utiliser 0 gpu
 }
 
 
@@ -308,13 +308,13 @@ client_resources = {
 # 10. Lancement de la simulation fédérée
 # ============================================================
 
-history = fl.simulation.start_simulation(
-    client_fn=get_client_fn(mnist_fds),
-    num_clients=NUM_CLIENTS,
-    config=fl.server.ServerConfig(num_rounds=NUM_ROUNDS),
-    strategy=strategy,
-    client_resources=client_resources,
-    actor_kwargs={
-        "on_actor_init_fn": enable_tf_gpu_growth,
+history = fl.simulation.start_simulation( #lancer la simulation FL Flower
+    client_fn=get_client_fn(mnist_fds), #donne a Flower la fonction permettant de créer les clients automatiquement
+    num_clients=NUM_CLIENTS,# nombre de clients dans la simulation
+    config=fl.server.ServerConfig(num_rounds=NUM_ROUNDS),#configuration serveur flower 
+    strategy=strategy,#startegy utilisée par le serveur FedAvg
+    client_resources=client_resources,#ressources systemes que on a attribué a chaque client précèdamment 
+    actor_kwargs={ #param supplémentiares 
+        "on_actor_init_fn": enable_tf_gpu_growth,#eviter des problemes GPU lors de la création des clients 
     },
 )
