@@ -17,7 +17,7 @@ import tensorflow as tf # sert à créer et entrainer le modèle ia
 from flwr.common import Metrics # le type Metrics utilisé pour stocker les métriques comme accuracy ou loss 
 from flwr_datasets import FederatedDataset #une classe permettant de changer un dataset déjà existant
 from flwr_datasets.partitioner import DirichletPartitioner #pour repartir les données entre plusieurs clients de maniere aléatoire et unifi
-from flwr.simulation.ray_transport.utils import enable_tf_gpu_growthévite    #les problèmes liés à l’utilisation du GPU avec TensorFlow pendant les simulations Flower.
+from flwr.simulation.ray_transport.utils import enable_tf_gpu_growth  #évite les problèmes liés à l’utilisation du GPU avec TensorFlow pendant les simulations Flower.
 
 
 # ============================================================
@@ -26,10 +26,10 @@ from flwr.simulation.ray_transport.utils import enable_tf_gpu_growthévite    #l
 
 VERBOSE = 0 #desactive l'affichage détaillé de tenserflow pendant l'entrainement
 
-NUM_CLIENTS = 5  # nombre de client dans la simulation
-NUM_ROUNDS = 10 #noombre de cycle
+NUM_CLIENTS = 80  # nombre de client dans la simulation
+NUM_ROUNDS = 20 #noombre de cycle
 
-FRACTION_FIT = 0.1 # pourcentage des clients utilisé pour le l'entrainement à chaque round (ex: 10%  des rounds)
+FRACTION_FIT = 0.1 # pourcentage des clients utilisé pour le l'entrainement à chaque round
 FRACTION_EVALUATE = 0.1 #pourcentage de client utilisé pour l'évaluation de modele 
 
 BATCH_SIZE = 32 # nombre d'images envoyées au modele a chaque etape d'entrainement (ici le modele traite 32 images a la fois )
