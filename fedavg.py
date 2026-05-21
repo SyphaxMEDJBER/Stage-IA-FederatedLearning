@@ -255,25 +255,25 @@ def get_evaluate_fn(testset):
 # pour éviter certains conflits avec Ray/Flower en simulation.
 tf.config.experimental.set_visible_devices([], "GPU")
 
-min_partition_size = TOTAL_DATASET_SIZE // NUM_CLIENTS // 10
+min_partition_size = TOTAL_DATASET_SIZE // NUM_CLIENTS // 10  # la taille minimale des données qu'un client doit recevoir
 
-partitioner = DirichletPartitioner(
-    num_partitions=NUM_CLIENTS,
-    partition_by="label",
-    alpha=0.5,
+partitioner = DirichletPartitioner( # créer un système qui découpe le dataset entre les clients
+    num_partitions=NUM_CLIENTS, #nombre de clients
+    partition_by="label",  #
+    alpha=0.5,#controle le niveau de deséquilibre des données entre les clients , plus alpha est petit plus clients tres diffirents
     min_partition_size=min_partition_size,
-    self_balancing=True,
+    self_balancing=True,# evite qu'un client reçoive trop ou peu de données
 )
 
-mnist_fds = FederatedDataset(
-    dataset="mnist",
-    partitioners={"train": partitioner},
+mnist_fds = FederatedDataset( # crée le dataset fédéré MNIST
+    dataset="mnist", #dataset utilisé : mnist
+    partitioners={"train": partitioner},#applique le découpage fédéré sur les données d’entraînement.
 )
 
-centralized_testset = mnist_fds.load_split("test").to_tf_dataset(
-    columns="image",
-    label_cols="label",
-    batch_size=BATCH_SIZE,
+centralized_testset = mnist_fds.load_split("test").to_tf_dataset( # charge le datset de test global utilisé par le serveur , et le convertit en format tenserFlow
+    columns="image", # les images sont les données d'entrée
+    label_cols="label", #les labele sont les bonnes réponses  
+    batch_size=BATCH_SIZE, # data set sera envoyé au modele par groupe de(BATCH_SIZE)  images  ici 32
 )
 
 
