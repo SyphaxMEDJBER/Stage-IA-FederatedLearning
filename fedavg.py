@@ -223,20 +223,20 @@ def get_evaluate_fn(testset):
     sur un jeu de test centralisé.
     """
 
-    def evaluate(
-        server_round: int,
-        parameters: fl.common.NDArrays,
-        config: Dict[str, fl.common.Scalar],
+    def evaluate( #fonction appellée automatique
+        server_round: int, # numero du round actuel
+        parameters: fl.common.NDArrays, #poids du modèle global envoyés par le serveur
+        config: Dict[str, fl.common.Scalar], 
     ):
-        model = get_model()
-        model.set_weights(parameters)
+        model = get_model() #crée un nouveau modele tenserflow
+        model.set_weights(parameters) #maj des poids pour  le modele global apres agregation
 
-        loss, accuracy = model.evaluate(
+        loss, accuracy = model.evaluate( #evaluation du modele 
             testset,
-            verbose=VERBOSE,
+            verbose=VERBOSE, #controlle de laffichage des détails de levaluation tenserflow
         )
 
-        print(
+        print(  # l'affichage des réesultats
             f"Round {server_round} - "
             f"Server-side loss: {loss:.4f}, "
             f"accuracy: {accuracy:.4f}"
