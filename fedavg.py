@@ -237,9 +237,9 @@ def get_evaluate_fn(testset):
             verbose=VERBOSE, #controlle de laffichage des détails de levaluation tenserflow
         )
 
-        with open("logs.csv","a",newline="")as f :
-            writer=csv.writer(f);
-            writer.writerow([server_round,loss, accuracy])
+        with open("logs.csv","a",newline="")as f : # ouvrir un fichier csv "logs.csv" en mode append 
+            writer=csv.writer(f); #crééer un objet qui pourra ecrire dans le fichiers csv
+            writer.writerow([server_round,loss, accuracy]) #ecrire une ligne dans le fichier 
 
 
         print(  # l'affichage des réesultats
