@@ -20,6 +20,9 @@ from flwr_datasets.partitioner import DirichletPartitioner #pour repartir les do
 from flwr.simulation.ray_transport.utils import enable_tf_gpu_growth  #évite les problèmes liés à l’utilisation du GPU avec TensorFlow pendant les simulations Flower.
 
 import csv
+
+import time
+
 # ============================================================
 # 1. Paramètres globaux
 # ============================================================
@@ -225,10 +228,12 @@ def get_evaluate_fn(testset):
     """
 
     def evaluate( #fonction appellée automatique
+            
         server_round: int, # numero du round actuel
         parameters: fl.common.NDArrays, #poids du modèle global envoyés par le serveur
         config: Dict[str, fl.common.Scalar], 
     ):
+        round_start = time.time()
         model = get_model() #crée un nouveau modele tenserflow
         model.set_weights(parameters) #maj des poids pour  le modele global apres agregation
 
@@ -236,10 +241,11 @@ def get_evaluate_fn(testset):
             testset,
             verbose=VERBOSE, #controlle de laffichage des détails de levaluation tenserflow
         )
+        round_time = time.time() - round_start
 
         with open("logs.csv","a",newline="")as f : # ouvrir un fichier csv "logs.csv" en mode append 
-            writer=csv.writer(f); #crééer un objet qui pourra ecrire dans le fichiers csv
-            writer.writerow([server_round,loss, accuracy]) #ecrire une ligne dans le fichier 
+            writer=csv.writer(f); #créer un objet qui pourra ecrire dans le fichiers csv
+            writer.writerow([server_round,loss, accuracy ,round_time]) #ecrire une ligne dans le fichier 
 
 
         print(  # l'affichage des réesultats
