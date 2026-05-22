@@ -29,8 +29,8 @@ import time
 
 VERBOSE = 0 #desactive l'affichage détaillé de tenserflow pendant l'entrainement
 
-NUM_CLIENTS = 2  # nombre de client dans la simulation
-NUM_ROUNDS = 3 #noombre de cycle
+NUM_CLIENTS = 12  # nombre de client dans la simulation
+NUM_ROUNDS = 2 #noombre de cycle
 
 FRACTION_FIT = 1 # pourcentage des clients utilisé pour le l'entrainement à chaque round
 FRACTION_EVALUATE = 1 #pourcentage de client utilisé pour l'évaluation de modele 
@@ -41,9 +41,11 @@ LOCAL_EPOCHS = 5 #nombre de fois ou chaque client entraine localement ses donné
 TOTAL_DATASET_SIZE = 60000 # taille de dataset utilisé pour la simulation
 
 #initialisation des fichier csv des metrics
+#ouvrir le fichier en mode w pour la premeiere fois ,pour ecrire le header de fichier ,
+ #pour plus de lisibilité en plus pour ecraser les anciennes données des fichiers 
 with open("logs/global_metrics.csv","w",newline="")as f :
     writer=csv.writer(f) #créer l'objet qui peut ecrire dans le fichiers csv
-    writer.writerow(["server_round","loss","accuracy","server_evaluation_time"]) #ecrire le header dans le fichier
+    writer.writerow(["server_round","loss","accuracy","server_evaluation_time","full_round_time"]) #ecrire le header dans le fichier
 
 # ============================================================
 # 2. Définition du modèle local
@@ -226,7 +228,7 @@ def weighted_average(metrics: List[Tuple[int, Metrics]]) -> Metrics:
 # 6. Évaluation centralisée côté serveur
 # ============================================================
 
-def get_evaluate_fn(testset):
+def get_evaluate_fn(testset, round_starts):
     """
     Crée une fonction d'évaluation côté serveur.
 
@@ -252,13 +254,20 @@ def get_evaluate_fn(testset):
             verbose=VERBOSE, #controlle de laffichage des détails de levaluation tenserflow
         )
         server_evaluation_time = time.time() - server_evaluation_start
-            #ouvrir le fichier en mode w pour la premeiere fois ,pour ecrire le header de fichier ,
-            #pour plus de lisibilité en plus pour ecraser les anciennes données des fichiers 
+        full_round_time = None
 
-
+        if server_round in round_starts: #si la round actuel est dans round_starts le dictionnaire (numero round , date debut round)
+            full_round_time = time.time() - round_starts[server_round] 
+            
         with open("logs/global_metrics.csv","a",newline="")as f : #  ouvrir un fichier csv "logs.csv" en mode append 
             writer=csv.writer(f); #créer un objet qui pourra ecrire dans le fichiers csv
-            writer.writerow([server_round,loss, accuracy ,server_evaluation_time]) 
+            writer.writerow([
+                server_round,
+                loss,
+                accuracy,
+                server_evaluation_time,
+                full_round_time,
+            ])
 
 
         print(  # l'affichage des réesultats
@@ -306,7 +315,22 @@ centralized_testset = mnist_fds.load_split("test").to_tf_dataset( # charge le da
 # 8. Définition de la stratégie FedAvg
 # ============================================================
 
-strategy = fl.server.strategy.FedAvg( # crée la startegie federated averaging utilisée par le serveur Flower
+
+
+class TimedFedAvg(fl.server.strategy.FedAvg): #une classe qui va nous aider a calculer le temps dune round , herite de FedAvg
+    def __init__(self, round_starts, *args, **kwargs):#round_starts est un dictionnaire ou on memeorise le tmeps de debut de chaque round
+        super().__init__(*args, **kwargs)
+        self.round_starts = round_starts
+
+    def configure_fit(self, server_round, parameters, client_manager):
+        self.round_starts[server_round] = time.time() #debut de la round 
+        return super().configure_fit(server_round, parameters, client_manager)
+
+
+round_starts = {}
+
+strategy = TimedFedAvg( # crée la startegie federated averaging utilisée par le serveur Flower
+    round_starts,
     fraction_fit=FRACTION_FIT,# pourcentage de clients utilisés pour l'entrainement à chaque round
     fraction_evaluate=FRACTION_EVALUATE, # pourcentage de clients utilisés pour l'entrainement à chaque round
 
@@ -315,7 +339,7 @@ strategy = fl.server.strategy.FedAvg( # crée la startegie federated averaging u
     min_available_clients=NUM_CLIENTS,# attendre la dispo de tout les clients avant de commencer 
 
     evaluate_metrics_aggregation_fn=weighted_average,# utilise la fonction weighted_average pour calculer l'accuracy globale 
-    evaluate_fn=get_evaluate_fn(centralized_testset), # utilise la finction d'evaluation serveur définie avant 
+    evaluate_fn=get_evaluate_fn(centralized_testset, round_starts), # utilise la finction d'evaluation serveur définie avant 
 )
 
 
