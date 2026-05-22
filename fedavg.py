@@ -29,8 +29,8 @@ import time
 
 VERBOSE = 0 #desactive l'affichage détaillé de tenserflow pendant l'entrainement
 
-NUM_CLIENTS = 5  # nombre de client dans la simulation
-NUM_ROUNDS = 10 #noombre de cycle
+NUM_CLIENTS = 2  # nombre de client dans la simulation
+NUM_ROUNDS = 3 #noombre de cycle
 
 FRACTION_FIT = 1 # pourcentage des clients utilisé pour le l'entrainement à chaque round
 FRACTION_EVALUATE = 1 #pourcentage de client utilisé pour l'évaluation de modele 
@@ -40,6 +40,10 @@ LOCAL_EPOCHS = 5 #nombre de fois ou chaque client entraine localement ses donné
 
 TOTAL_DATASET_SIZE = 60000 # taille de dataset utilisé pour la simulation
 
+#initialisation des fichier csv des metrics
+with open("logs/global_metrics.csv","w",newline="")as f :
+    writer=csv.writer(f) #créer l'objet qui peut ecrire dans le fichiers csv
+    writer.writerow(["server_round","loss","accuracy","server_evaluation_time"]) #ecrire le header dans le fichier
 
 # ============================================================
 # 2. Définition du modèle local
@@ -124,15 +128,18 @@ class FlowerClient(fl.client.NumPyClient):
         4. Il renvoie les nouveaux paramètres au serveur.
         """
 
-        self.model.set_weights(parameters)#le client recoit les param du modèle global et met à jour les siens
+        self.model.set_weights(parameters) #le client recoit les param du modèle global et met à jour les siens
 
+        train_start = time.time() #temps au debut d'entrainement
         self.model.fit( #lance l'entrainement du modèle ia local du client
             self.trainset, #utilise la dataset d'entrainement du client
             epochs=LOCAL_EPOCHS,#nombre de repition de client sur les donnés 
             verbose=VERBOSE, #controle l'affichage des details tenserFlow , ici = 0 donc détails désactivés
         )
+        training_time = time.time() - train_start # temps d'entrainement
 
-        return self.model.get_weights(), len(self.trainset), {}#le client renvoie ls poids et le nombre de données utilisées par le client pour lentrainement 
+
+        return self.model.get_weights(), len(self.trainset), {  "training_time": training_time}#le client renvoie les poids et le nombre de données utilisées par le client pour lentrainement 
 
     def evaluate(self, parameters, config):
         """
@@ -226,26 +233,32 @@ def get_evaluate_fn(testset):
     Après chaque round, le serveur peut évaluer le modèle global
     sur un jeu de test centralisé.
     """
+      
 
     def evaluate( #fonction appellée automatique
+            
             
         server_round: int, # numero du round actuel
         parameters: fl.common.NDArrays, #poids du modèle global envoyés par le serveur
         config: Dict[str, fl.common.Scalar], 
     ):
-        round_start = time.time()
-        model = get_model() #crée un nouveau modele tenserflow
+        
+        model = get_model() #crée un nouveau modele tenserflow ##################################################
+        server_evaluation_start = time.time()
         model.set_weights(parameters) #maj des poids pour  le modele global apres agregation
 
         loss, accuracy = model.evaluate( #evaluation du modele 
             testset,
             verbose=VERBOSE, #controlle de laffichage des détails de levaluation tenserflow
         )
-        round_time = time.time() - round_start
+        server_evaluation_time = time.time() - server_evaluation_start
+            #ouvrir le fichier en mode w pour la premeiere fois ,pour ecrire le header de fichier ,
+            #pour plus de lisibilité en plus pour ecraser les anciennes données des fichiers 
 
-        with open("logs.csv","a",newline="")as f : # ouvrir un fichier csv "logs.csv" en mode append 
+
+        with open("logs/global_metrics.csv","a",newline="")as f : #  ouvrir un fichier csv "logs.csv" en mode append 
             writer=csv.writer(f); #créer un objet qui pourra ecrire dans le fichiers csv
-            writer.writerow([server_round,loss, accuracy ,round_time]) #ecrire une ligne dans le fichier 
+            writer.writerow([server_round,loss, accuracy ,server_evaluation_time]) 
 
 
         print(  # l'affichage des réesultats
