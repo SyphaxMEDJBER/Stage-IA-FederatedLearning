@@ -36,16 +36,26 @@ FRACTION_FIT = 1 # pourcentage des clients utilisé pour le l'entrainement à ch
 FRACTION_EVALUATE = 1 #pourcentage de client utilisé pour l'évaluation de modele 
 
 BATCH_SIZE = 32 # nombre d'images envoyées au modele a chaque etape d'entrainement (ici le modele traite 32 images a la fois )
-LOCAL_EPOCHS = 5 #nombre de fois ou chaque client entraine localement ses données
+LOCAL_EPOCHS = 1 #nombre de fois ou chaque client entraine localement ses données
 
 TOTAL_DATASET_SIZE = 60000 # taille de dataset utilisé pour la simulation
 
 #initialisation des fichier csv des metrics
 #ouvrir le fichier en mode w pour la premeiere fois ,pour ecrire le header de fichier ,
  #pour plus de lisibilité en plus pour ecraser les anciennes données des fichiers 
-with open("logs/global_metrics.csv","w",newline="")as f :
-    writer=csv.writer(f) #créer l'objet qui peut ecrire dans le fichiers csv
-    writer.writerow(["server_round","loss","accuracy","server_evaluation_time","full_round_time","avg_client_training_time"]) #ecrire le header dans le fichier
+with open("logs/global_metrics.csv","w",newline="") as f:
+    writer = csv.writer(f)
+    writer.writerow([
+        "server_round", "loss", "accuracy",
+        "server_evaluation_time", "full_round_time",
+        "avg_client_training_time", "max_client_training_time", "min_client_training_time",
+        "num_failures",
+        "accuracy_delta", "loss_delta",
+    ])
+
+with open("logs/client_metrics.csv","w",newline="") as f:
+    writer = csv.writer(f)
+    writer.writerow(["server_round", "client_id", "training_time"])  # une ligne par client par round
 
 # ============================================================
 # 2. Définition du modèle local
@@ -141,7 +151,10 @@ class FlowerClient(fl.client.NumPyClient):
         training_time = time.time() - train_start # temps d'entrainement
 
 
-        return self.model.get_weights(), len(self.trainset), {  "training_time": training_time}#le client renvoie les poids et le nombre de données utilisées par le client pour lentrainement 
+        return self.model.get_weights(), len(self.trainset), {
+            "training_time": training_time,
+            "cid": self.cid,  # le client envoie son propre id pour l'identifier côté serveur
+        } # le client renvoie les poids et le nombre de données utilisées par le client pour l'entrainement
 
     def evaluate(self, parameters, config):
         """
@@ -232,52 +245,68 @@ def get_evaluate_fn(testset, round_starts, round_metrics):
     """
     Crée une fonction d'évaluation côté serveur.
 
-    Après chaque round, le serveur peut évaluer le modèle global
-    sur un jeu de test centralisé.
+    Après chaque round, le serveur évalue le modèle global sur un jeu de test
+    centralisé et logue toutes les métriques dans global_metrics.csv.
     """
-      
 
-    def evaluate( #fonction appellée automatique
-            
-            
-        server_round: int, # numero du round actuel
-        parameters: fl.common.NDArrays, #poids du modèle global envoyés par le serveur
-        config: Dict[str, fl.common.Scalar], 
+    prev_loss     = [None]  # valeur du round précédent (liste pour pouvoir modifier dans la closure)
+    prev_accuracy = [None]
+
+    def evaluate(
+        server_round: int,
+        parameters: fl.common.NDArrays,
+        config: Dict[str, fl.common.Scalar],
     ):
-        
-        model = get_model() #crée un nouveau modele tenserflow ##################################################
+        model = get_model()
         server_evaluation_start = time.time()
-        model.set_weights(parameters) #maj des poids pour  le modele global apres agregation
+        model.set_weights(parameters)
 
-        loss, accuracy = model.evaluate( #evaluation du modele 
-            testset,
-            verbose=VERBOSE, #controlle de laffichage des détails de levaluation tenserflow
-        )
+        loss, accuracy = model.evaluate(testset, verbose=VERBOSE)
         server_evaluation_time = time.time() - server_evaluation_start
+
+        # temps total du round (depuis configure_fit jusqu'ici)
         full_round_time = None
+        if server_round in round_starts:
+            full_round_time = time.time() - round_starts[server_round]
 
-        if server_round in round_starts: #si la round actuel est dans round_starts le dictionnaire (numero round , date debut round)
-            full_round_time = time.time() - round_starts[server_round] 
-            
-        # récupérer le training time moyen des clients pour ce round (calculé dans aggregate_fit)
-        avg_client_training_time = round_metrics.get(server_round)
+        # métriques agrégées des clients (stockées par aggregate_fit)
+        metrics = round_metrics.get(server_round, {})
+        avg_training_time = metrics.get("avg_training_time")
+        max_training_time = metrics.get("max_training_time")
+        min_training_time = metrics.get("min_training_time")
+        num_failures      = metrics.get("num_failures")
 
-        with open("logs/global_metrics.csv","a",newline="")as f : #  ouvrir un fichier csv "logs.csv" en mode append
-            writer=csv.writer(f); #créer un objet qui pourra ecrire dans le fichiers csv
+        # delta par rapport au round précédent (None au round 1)
+        accuracy_delta = None
+        loss_delta     = None
+        if prev_accuracy[0] is not None:
+            accuracy_delta = accuracy - prev_accuracy[0]  # positif = amélioration
+            loss_delta     = loss     - prev_loss[0]      # négatif = amélioration
+
+        # mettre à jour les valeurs précédentes pour le prochain round
+        prev_accuracy[0] = accuracy
+        prev_loss[0]     = loss
+
+        with open("logs/global_metrics.csv", "a", newline="") as f:
+            writer = csv.writer(f)
             writer.writerow([
                 server_round,
                 loss,
                 accuracy,
                 server_evaluation_time,
                 full_round_time,
-                avg_client_training_time,  # moyenne des training_time retournés par les clients
+                avg_training_time,
+                max_training_time,
+                min_training_time,
+                num_failures,
+                accuracy_delta,
+                loss_delta,
             ])
 
-
-        print(  # l'affichage des réesultats
+        print(
             f"Round {server_round} - "
-            f"Server-side loss: {loss:.4f}, "
-            f"accuracy: {accuracy:.4f}"
+            f"loss: {loss:.4f}, accuracy: {accuracy:.4f}"
+            + (f", Δacc: {accuracy_delta:+.4f}" if accuracy_delta is not None else "")
         )
 
         return loss, {"accuracy": accuracy}
@@ -334,17 +363,33 @@ class TimedFedAvg(fl.server.strategy.FedAvg): #une classe qui va nous aider a ca
     def aggregate_fit(self, server_round, results, failures):
         """
         Appelée après que tous les clients ont terminé leur fit().
-        On récupère les training_time renvoyés par chaque client
-        et on calcule la moyenne pour ce round.
+        - Écrit le détail de chaque client dans client_metrics.csv
+        - Calcule avg/max/min training_time + num_failures pour global_metrics.csv
         """
-        training_times = [
-            fit_res.metrics["training_time"]
+
+        # extraire (client_id, training_time) pour chaque client
+        # on lit cid depuis fit_res.metrics car client_proxy.cid retourne un ID interne Ray
+        client_data = [
+            (fit_res.metrics["cid"], fit_res.metrics["training_time"])
             for _, fit_res in results
-            if "training_time" in fit_res.metrics
+            if "training_time" in fit_res.metrics and "cid" in fit_res.metrics
         ]
 
+        # écrire une ligne par client dans client_metrics.csv
+        with open("logs/client_metrics.csv", "a", newline="") as f:
+            writer = csv.writer(f)
+            for cid, training_time in client_data:
+                writer.writerow([server_round, cid, training_time])
+
+        # calculer les agrégats et les stocker pour get_evaluate_fn
+        training_times = [t for _, t in client_data]
         if training_times:
-            self.round_metrics[server_round] = sum(training_times) / len(training_times)
+            self.round_metrics[server_round] = {
+                "avg_training_time": sum(training_times) / len(training_times),
+                "max_training_time": max(training_times),
+                "min_training_time": min(training_times),
+                "num_failures":      len(failures),
+            }
 
         return super().aggregate_fit(server_round, results, failures)
 
@@ -373,7 +418,7 @@ strategy = TimedFedAvg( # crée la startegie federated averaging utilisée par l
 
 client_resources = { # définit les ressources utilisées par chaque client
     "num_cpus": 1, # 1cpu /client 
-    "num_gpus": 1 if tf.config.list_physical_devices("GPU") else 0,#si un gpu existe utiliser un gpu sinon utiliser 0 gpu
+    "num_gpus": 0 if tf.config.list_physical_devices("GPU") else 0,#si un gpu existe utiliser un gpu sinon utiliser 0 gpu
 }
 
 
