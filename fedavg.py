@@ -45,7 +45,7 @@ TOTAL_DATASET_SIZE = 60000 # taille de dataset utilisé pour la simulation
  #pour plus de lisibilité en plus pour ecraser les anciennes données des fichiers 
 with open("logs/global_metrics.csv","w",newline="")as f :
     writer=csv.writer(f) #créer l'objet qui peut ecrire dans le fichiers csv
-    writer.writerow(["server_round","loss","accuracy","server_evaluation_time","full_round_time"]) #ecrire le header dans le fichier
+    writer.writerow(["server_round","loss","accuracy","server_evaluation_time","full_round_time","avg_client_training_time"]) #ecrire le header dans le fichier
 
 # ============================================================
 # 2. Définition du modèle local
@@ -228,7 +228,7 @@ def weighted_average(metrics: List[Tuple[int, Metrics]]) -> Metrics:
 # 6. Évaluation centralisée côté serveur
 # ============================================================
 
-def get_evaluate_fn(testset, round_starts):
+def get_evaluate_fn(testset, round_starts, round_metrics):
     """
     Crée une fonction d'évaluation côté serveur.
 
@@ -259,7 +259,10 @@ def get_evaluate_fn(testset, round_starts):
         if server_round in round_starts: #si la round actuel est dans round_starts le dictionnaire (numero round , date debut round)
             full_round_time = time.time() - round_starts[server_round] 
             
-        with open("logs/global_metrics.csv","a",newline="")as f : #  ouvrir un fichier csv "logs.csv" en mode append 
+        # récupérer le training time moyen des clients pour ce round (calculé dans aggregate_fit)
+        avg_client_training_time = round_metrics.get(server_round)
+
+        with open("logs/global_metrics.csv","a",newline="")as f : #  ouvrir un fichier csv "logs.csv" en mode append
             writer=csv.writer(f); #créer un objet qui pourra ecrire dans le fichiers csv
             writer.writerow([
                 server_round,
@@ -267,6 +270,7 @@ def get_evaluate_fn(testset, round_starts):
                 accuracy,
                 server_evaluation_time,
                 full_round_time,
+                avg_client_training_time,  # moyenne des training_time retournés par les clients
             ])
 
 
@@ -318,19 +322,39 @@ centralized_testset = mnist_fds.load_split("test").to_tf_dataset( # charge le da
 
 
 class TimedFedAvg(fl.server.strategy.FedAvg): #une classe qui va nous aider a calculer le temps dune round , herite de FedAvg
-    def __init__(self, round_starts, *args, **kwargs):#round_starts est un dictionnaire ou on memeorise le tmeps de debut de chaque round
+    def __init__(self, round_starts, round_metrics, *args, **kwargs):#round_starts : debut de chaque round | round_metrics : training times des clients
         super().__init__(*args, **kwargs)
         self.round_starts = round_starts
+        self.round_metrics = round_metrics  # dictionnaire partagé avec get_evaluate_fn
 
     def configure_fit(self, server_round, parameters, client_manager):
-        self.round_starts[server_round] = time.time() #debut de la round 
+        self.round_starts[server_round] = time.time() #debut de la round
         return super().configure_fit(server_round, parameters, client_manager)
+
+    def aggregate_fit(self, server_round, results, failures):
+        """
+        Appelée après que tous les clients ont terminé leur fit().
+        On récupère les training_time renvoyés par chaque client
+        et on calcule la moyenne pour ce round.
+        """
+        training_times = [
+            fit_res.metrics["training_time"]
+            for _, fit_res in results
+            if "training_time" in fit_res.metrics
+        ]
+
+        if training_times:
+            self.round_metrics[server_round] = sum(training_times) / len(training_times)
+
+        return super().aggregate_fit(server_round, results, failures)
 
 
 round_starts = {}
+round_metrics = {}  # stocke le training_time moyen des clients pour chaque round
 
 strategy = TimedFedAvg( # crée la startegie federated averaging utilisée par le serveur Flower
     round_starts,
+    round_metrics,
     fraction_fit=FRACTION_FIT,# pourcentage de clients utilisés pour l'entrainement à chaque round
     fraction_evaluate=FRACTION_EVALUATE, # pourcentage de clients utilisés pour l'entrainement à chaque round
 
@@ -339,7 +363,7 @@ strategy = TimedFedAvg( # crée la startegie federated averaging utilisée par l
     min_available_clients=NUM_CLIENTS,# attendre la dispo de tout les clients avant de commencer 
 
     evaluate_metrics_aggregation_fn=weighted_average,# utilise la fonction weighted_average pour calculer l'accuracy globale 
-    evaluate_fn=get_evaluate_fn(centralized_testset, round_starts), # utilise la finction d'evaluation serveur définie avant 
+    evaluate_fn=get_evaluate_fn(centralized_testset, round_starts, round_metrics), # utilise la finction d'evaluation serveur définie avant
 )
 
 
