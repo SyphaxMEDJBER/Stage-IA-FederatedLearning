@@ -33,7 +33,7 @@ NUM_CLIENTS = 12  # nombre de client dans la simulation
 NUM_ROUNDS = 2 #noombre de cycle
 
 FRACTION_FIT = 1 # pourcentage des clients utilisé pour le l'entrainement à chaque round
-FRACTION_EVALUATE = 1 #pourcentage de client utilisé pour l'évaluation de modele 
+FRACTION_EVALUATE = 0.5 #pourcentage de client utilisé pour l'évaluation de modele 
 
 BATCH_SIZE = 32 # nombre d'images envoyées au modele a chaque etape d'entrainement (ici le modele traite 32 images a la fois )
 LOCAL_EPOCHS = 1 #nombre de fois ou chaque client entraine localement ses données
