@@ -30,7 +30,55 @@ SEUILS = {
 
 
 # ============================================================
-# 2. Chargement des métriques
+# 2. Détection des événements
+# ============================================================
+
+def detect_events(metrics):
+    """
+    Reçoit un dictionnaire de métriques d'un round et retourne la liste des événements détectés.
+    Un même round peut avoir plusieurs événements simultanément.
+    """
+    events = []  # liste des événements détectés pour ce round
+
+    # convergence : accuracy et loss ne bougent presque plus
+    if (abs(metrics["accuracy_delta"]) < SEUILS["convergence_acc_delta_max"] and
+            abs(metrics["loss_delta"])    < SEUILS["convergence_loss_delta_max"]):
+        events.append("convergence")
+
+    # chute d'accuracy : l'accuracy a baissé de façon significative
+    if metrics["accuracy_delta"] < SEUILS["accuracy_drop_min"]:
+        events.append("accuracy_drop")
+
+    # divergence : la loss augmente au lieu de descendre
+    if metrics["loss_delta"] > SEUILS["divergence_loss_min"]:
+        events.append("divergence")
+
+    # client lent : max_training_time très supérieur à avg_training_time
+    if (metrics["avg_client_training_time"] > 0 and
+            metrics["max_client_training_time"] / metrics["avg_client_training_time"] > SEUILS["slow_client_ratio"]):
+        events.append("slow_client")
+
+    # round trop long : full_round_time peut être None (round 0), on vérifie d'abord qu'il existe
+    if metrics["full_round_time"] and metrics["full_round_time"] > SEUILS["round_time_max"]:
+        events.append("round_too_long")# si le temps de round existe et il est supérieur au seuil
+
+    # accuracy trop basse : le modèle ne performe pas suffisamment
+    if metrics["accuracy"] < SEUILS["accuracy_min"]:
+        events.append("low_accuracy")
+
+    # failure : des clients ont planté pendant le round
+    if metrics["num_failures"] >= SEUILS["failure_min"]:
+        events.append("client_failure")
+
+    # si aucun événement anormal détecté → round normal
+    if not events:
+        events.append("normal")
+
+    return events  # ex: ["slow_client", "accuracy_drop"] ou ["normal"]
+
+
+# ============================================================
+# 3. Chargement des métriques
 # ============================================================
 
 def load_metrics():
