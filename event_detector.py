@@ -3,6 +3,8 @@ Détection d'événements pour la plateforme Federated Learning.
 Lit global_metrics.csv et détecte les anomalies round par round.
 """
 
+import time
+
 import pandas as pd
 
 # ============================================================
@@ -93,6 +95,37 @@ def load_metrics():
     return df
 
 
-if __name__ == "__main__":#execute le fichier que quand on le lance  , pas quand un autre fichier l'importe 
-    df = load_metrics()
-    print(df)
+# ============================================================
+# 4. File watcher — surveillance du CSV en temps réel
+# ============================================================
+
+def watch_metrics(interval=3):
+    """
+    Surveille global_metrics.csv en boucle et détecte les événements
+    dè s qu'un nouveauround apparaît dans le fichier.
+    interval : délai en secondes entre chaque lecture du CSV
+    """
+    last_round = 0  # numéro du dernier round déjà traité
+
+    print("Surveillance démarrée... (Ctrl+C pour arrêter)")
+
+    while True:
+        df = load_metrics()
+
+        # garder uniquement les rounds pas encore traités
+        new_rows = df[df["server_round"] > last_round]
+
+        for _, row in new_rows.iterrows():
+            metrics = row.to_dict()  # convertir la ligne CSV en dictionnaire
+            events  = detect_events(metrics)  # détecter les événements
+
+            # affichage temporaire 
+            print(f"Round {int(metrics['server_round'])} → {events}")
+
+            last_round = int(metrics["server_round"])  # mettre à jour le dernier round traité
+
+        time.sleep(interval)  # attendre avant de relire le CSV
+
+
+if __name__ == "__main__":
+    watch_metrics()
