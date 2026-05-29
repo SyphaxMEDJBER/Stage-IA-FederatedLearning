@@ -3,9 +3,21 @@ Détection d'événements pour la plateforme Federated Learning.
 Lit global_metrics.csv et détecte les anomalies round par round.
 """
 
+import os
+import smtplib
 import time
+from datetime import datetime
+from email.mime.text import MIMEText
 
 import pandas as pd
+from dotenv import load_dotenv
+
+load_dotenv()  # charge les variables depuis le fichier .env
+
+# identifiants email chargés depuis .env
+GMAIL_USER       = os.getenv("GMAIL_USER")
+GMAIL_PASSWORD   = os.getenv("GMAIL_APP_PASSWORD")
+ALERT_RECIPIENT  = os.getenv("ALERT_RECIPIENT")
 
 # ============================================================
 # 1. Seuils de détection
@@ -32,7 +44,46 @@ SEUILS = {
 
 
 # ============================================================
-# 2. Détection des événements
+# 2. Envoi des alertes par email
+# ============================================================
+
+MESSAGES = {
+    "normal":         lambda m: f"Round normal — accuracy_delta={m['accuracy_delta']:.4f}, loss_delta={m['loss_delta']:.4f}",
+    "convergence":    lambda m: f"Le modèle a convergé — accuracy_delta={m['accuracy_delta']:.4f}",
+    "accuracy_drop":  lambda m: f"Chute d'accuracy de {m['accuracy_delta']:.4f} !",
+    "divergence":     lambda m: f"La loss monte ! loss_delta={m['loss_delta']:.4f}",
+    "slow_client":    lambda m: f"Client lent — max={m['max_client_training_time']:.1f}s vs avg={m['avg_client_training_time']:.1f}s",
+    "round_too_long": lambda m: f"Round trop long — {m['full_round_time']:.1f}s",
+    "low_accuracy":   lambda m: f"Accuracy trop basse — {m['accuracy']:.4f}",
+    "client_failure": lambda m: f"{int(m['num_failures'])} client(s) ont planté !",
+}
+
+def send_alert(event, server_round, metrics):
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    detail    = MESSAGES.get(event, lambda _: "")(metrics)
+    message   = f"[{timestamp}] [{event.upper()}] Round {server_round} — {detail}"
+
+    print(message)
+
+    try:
+        sujet = f"[FL Alert] {event.upper()} — Round {server_round}"
+        corps = f"{message}\n\nMétriques complètes :\n{metrics}"
+
+        msg            = MIMEText(corps)
+        msg["Subject"] = sujet
+        msg["From"]    = GMAIL_USER
+        msg["To"]      = ALERT_RECIPIENT
+
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+            server.login(GMAIL_USER, GMAIL_PASSWORD)
+            server.send_message(msg)
+
+    except Exception as e:
+        print(f"Erreur envoi email : {e}")
+
+
+# ============================================================
+# 3. Détection des événements
 # ============================================================
 
 def detect_events(metrics):
@@ -119,8 +170,8 @@ def watch_metrics(interval=3):
             metrics = row.to_dict()  # convertir la ligne CSV en dictionnaire
             events  = detect_events(metrics)  # détecter les événements
 
-            # affichage temporaire 
-            print(f"Round {int(metrics['server_round'])} → {events}")
+            for event in events:
+                send_alert(event, int(metrics["server_round"]), metrics)
 
             last_round = int(metrics["server_round"])  # mettre à jour le dernier round traité
 

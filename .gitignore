@@ -2,3 +2,4 @@ test.txt
 roadmap.txt
 __pycache__/
 training_data/
+.env

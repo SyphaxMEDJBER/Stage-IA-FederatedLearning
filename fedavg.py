@@ -429,10 +429,14 @@ client_resources = { # définit les ressources utilisées par chaque client
 history = fl.simulation.start_simulation( #lancer la simulation FL Flower
     client_fn=get_client_fn(mnist_fds), #donne a Flower la fonction permettant de créer les clients automatiquement
     num_clients=NUM_CLIENTS,# nombre de clients dans la simulation
-    config=fl.server.ServerConfig(num_rounds=NUM_ROUNDS),#configuration serveur flower 
+    config=fl.server.ServerConfig(num_rounds=NUM_ROUNDS),#configuration serveur flower
     strategy=strategy,#startegy utilisée par le serveur FedAvg
-    client_resources=client_resources,#ressources systemes que on a attribué a chaque client précèdamment 
-    actor_kwargs={ #param supplémentiares 
-        "on_actor_init_fn": enable_tf_gpu_growth,#eviter des problemes GPU lors de la création des clients 
+    client_resources=client_resources,#ressources systemes que on a attribué a chaque client précèdamment
+    ray_init_args={
+        "include_dashboard": False,  # désactive le dashboard Ray qui cause des timeouts sur Windows
+        "num_cpus": NUM_CLIENTS,     # fixe le nombre de CPUs explicitement pour éviter l'auto-détection
+    },
+    actor_kwargs={ #param supplémentiares
+        "on_actor_init_fn": enable_tf_gpu_growth,#eviter des problemes GPU lors de la création des clients
     },
 )
