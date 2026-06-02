@@ -1,0 +1,32 @@
+{
+  "config": {
+    "dataset": "MNIST",
+    "strategy": "FedAvg",
+    "num_clients": 5,
+    "num_rounds": 10,
+    "fraction_fit": 1.0,
+    "fraction_evaluate": 1.0,
+    "local_epochs": 2,
+    "batch_size": 32,
+    "seed": 42,
+    "partitioning": "dirichlet",
+    "dirichlet_alpha": 0.3
+  },
+  "rounds": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+  "global_accuracy": [
+    0.4821, 0.5934, 0.6102, 0.6789, 0.6412,
+    0.7023, 0.6834, 0.7198, 0.7041, 0.7312
+  ],
+  "global_loss": [
+    1.7823, 1.3412, 1.1902, 0.9841, 1.0234,
+    0.8712, 0.9103, 0.8341, 0.8902, 0.8201
+  ],
+  "summary": {
+    "final_accuracy": 0.7312,
+    "max_accuracy": 0.7312,
+    "final_loss": 0.8201,
+    "total_rounds": 10,
+    "total_time_sec": 51.7,
+    "converged": false
+  }
+}

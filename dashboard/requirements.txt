@@ -1,0 +1,18 @@
+# FLows — FedAvg Intern Dashboard
+# Tested on Python 3.10+
+
+# Federated learning
+flwr==1.8.0
+
+# Deep learning + MNIST data loader
+tensorflow==2.15.0
+
+# Data processing
+numpy>=1.24,<2.0
+
+# Dashboard
+streamlit>=1.32
+
+# Visualization
+plotly>=5.18
+pandas>=2.0

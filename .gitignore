@@ -1,5 +1,14 @@
 test.txt
 roadmap.txt
 __pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
 training_data/
 .env
+
+# Dossiers générés automatiquement
+dashboard/outputs/
+fl_agent/reports/
+logs/
+ollama_setup.md
