@@ -84,3 +84,74 @@ def compute_signals(run_data):
         "converged":           converged,
         "is_monotonic":        all(d >= 0 for d in acc_deltas),          # accuracy toujours croissante
     }
+
+
+def compare_runs(runs):
+    """
+    compare plusieurs runs entre eux et identifie le meilleur
+    prend un dict {nom_run: run_data} et retourne les métriques clés de chaque run
+    """
+    if len(runs) < 2:
+        return {"error": "il faut au moins 2 runs pour comparer"}
+
+    result = {}
+    for name, data in runs.items():
+        sig = compute_signals(data)       # on calcule les signaux de chaque run
+        result[name] = {
+            "final_accuracy":    sig["final_accuracy"],
+            "max_accuracy":      sig["max_accuracy"],
+            "final_loss":        sig["final_loss"],
+            "converged":         sig["converged"],
+            "max_accuracy_drop": sig["max_accuracy_drop"],
+        }
+
+    # on cherche le run avec la meilleure accuracy finale
+    best = max(result.items(), key=lambda x: x[1]["final_accuracy"])
+    result["__best__"] = best[0]
+
+    return result
+
+
+def classify_run(signals):
+    """
+    classifie un run en clean / attacked / non_iid à partir de ses signaux
+    fonctionne par vote pondéré : chaque indice ajoute des points à une catégorie
+    retourne le label gagnant avec sa confiance et les raisons du choix
+    """
+    score   = {"clean": 0, "attacked": 0, "non_iid": 0}
+    reasons = []
+
+    # indices clean : accuracy haute et modèle convergé
+    if signals["final_accuracy"] > 0.88:
+        score["clean"] += 2
+        reasons.append(f"accuracy finale élevée ({signals['final_accuracy']:.3f})")
+    if signals["converged"]:
+        score["clean"] += 1
+        reasons.append("convergé sur les 3 derniers rounds")
+
+    # indices attacked : chute brutale d'accuracy + rebond de la loss
+    if signals["max_accuracy_drop"] < -0.05:
+        score["attacked"] += 3
+        reasons.append(f"chute d'accuracy de {signals['max_accuracy_drop']:.3f} en un round")
+    if signals["num_loss_increases"] >= 2 and signals["max_loss_increase"] > 0.2:
+        score["attacked"] += 2
+        reasons.append(f"pic de loss détecté ({signals['num_loss_increases']} rounds)")
+
+    # indices non_iid : oscillations fréquentes, convergence lente
+    if signals["accuracy_variance"] > 0.001:
+        score["non_iid"] += 2
+        reasons.append(f"variance élevée de l'accuracy ({signals['accuracy_variance']:.5f})")
+    if signals["num_negative_deltas"] >= 2 and signals["max_accuracy_drop"] > -0.05:
+        score["non_iid"] += 1
+        reasons.append(f"oscillations multiples ({signals['num_negative_deltas']} baisses)")
+
+    # le label avec le plus de points gagne
+    label      = max(score, key=score.get)
+    confidence = round(score[label] / (sum(score.values()) or 1), 3)
+
+    return {
+        "label":      label,
+        "confidence": confidence,
+        "scores":     score,
+        "reasons":    reasons,
+    }
