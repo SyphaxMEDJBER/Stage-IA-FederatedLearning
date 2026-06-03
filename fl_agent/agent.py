@@ -83,3 +83,123 @@ def parse_action(response):
             pass
 
     return None  # réponse malformée, le fallback prendra le relais
+
+
+# ============================================================
+# 3. Exécution d'un outil et mise à jour de l'état
+# ============================================================
+
+def execute_tool(parsed, state):
+    name = parsed["action"]["name"]
+    args = parsed["action"].get("args", {})
+
+    try:
+        if name == "load_run":
+            path = args.get("path", "")
+            if not os.path.isabs(path):                          # si chemin relatif, on le complète
+                path = os.path.join(state["runs_dir"], path)
+            data     = load_run(path)
+            run_name = os.path.splitext(os.path.basename(path))[0]
+            state["loaded_runs"][run_name] = data                # on stocke le run dans l'état
+            cfg  = data.get("config", {})
+            summ = data.get("summary", {})
+            return (f"run '{run_name}' chargé : {cfg.get('num_clients')} clients, "
+                    f"{cfg.get('num_rounds')} rounds, "
+                    f"accuracy finale={summ.get('final_accuracy')}, "
+                    f"convergé={summ.get('converged')}")
+
+        elif name == "compute_signals":
+            run_name = args.get("run_name", "")
+            if run_name not in state["loaded_runs"]:
+                return f"erreur : run '{run_name}' pas encore chargé"
+            sig = compute_signals(state["loaded_runs"][run_name])
+            state["signals"][run_name] = sig                     # on stocke les signaux dans l'état
+            return (f"signaux calculés pour '{run_name}' : "
+                    f"slope={sig['accuracy_slope']:.4f}, "
+                    f"max_drop={sig['max_accuracy_drop']:.4f}, "
+                    f"convergé={sig['converged']}")
+
+        elif name == "compare_runs":
+            run_names = args.get("run_names", [])
+            missing   = [n for n in run_names if n not in state["loaded_runs"]]
+            if missing:
+                return f"erreur : runs pas chargés : {missing}"
+            subset = {n: state["loaded_runs"][n] for n in run_names}
+            result = compare_runs(subset)
+            state["comparisons"] = result
+            return f"comparaison terminée — meilleur run : {result.get('__best__')}"
+
+        elif name == "classify_run":
+            run_name = args.get("run_name", "")
+            if run_name not in state["signals"]:
+                return f"erreur : signaux manquants pour '{run_name}'"
+            result = classify_run(state["signals"][run_name])
+            state["classifications"][run_name] = result          # on stocke la classification
+            return (f"classification '{run_name}' : {result['label'].upper()} "
+                    f"(confiance={result['confidence']:.0%})")
+
+        elif name == "ask_llm":
+            question = args.get("question", "")
+            context  = args.get("context", "")
+            response = ask_llm(f"Contexte : {context}\n\nQuestion : {question}")
+            state["llm_responses"].append({"question": question, "response": response})
+            return f"réponse LLM : {response[:200]}"
+
+        elif name == "write_report":
+            run_name    = args.get("run_name", "")
+            output_path = args.get("output_path", "")
+            if not output_path:
+                output_path = os.path.join(state["runs_dir"], "..", "fl_agent", "reports", f"{run_name}_analysis.md")
+            if run_name not in state["loaded_runs"]:
+                return f"erreur : run '{run_name}' pas chargé"
+            if run_name not in state["signals"]:
+                return f"erreur : signaux manquants pour '{run_name}'"
+            if run_name not in state["classifications"]:
+                return f"erreur : classification manquante pour '{run_name}'"
+            commentary = "\n".join(r["response"] for r in state["llm_responses"]) or "aucun commentaire LLM"
+            path = write_report(
+                run_name       = run_name,
+                run_data       = state["loaded_runs"][run_name],
+                signals        = state["signals"][run_name],
+                classification = state["classifications"][run_name],
+                llm_commentary = commentary,
+                output_path    = output_path,
+            )
+            state["report_path"] = path
+            return f"rapport écrit : {path}"
+
+        elif name == "finish":
+            state["finished"] = True
+            return "analyse terminée"
+
+        else:
+            return f"outil inconnu : '{name}'"
+
+    except Exception as e:
+        return f"erreur lors de '{name}' : {type(e).__name__} : {e}"
+
+
+# ============================================================
+# 4. Fallback : action logique suivante si Ollama échoue
+# ============================================================
+
+def get_fallback_action(state):
+    # si Ollama retourne du JSON malformé, on décide nous-mêmes la prochaine étape
+    target = state["target_run"]
+
+    if target not in state["loaded_runs"]:
+        matching = [f for f in state["available_files"] if target in f]
+        path = matching[0] if matching else (state["available_files"][0] if state["available_files"] else None)
+        if path:
+            return {"name": "load_run", "args": {"path": path}}
+
+    if target not in state["signals"]:
+        return {"name": "compute_signals", "args": {"run_name": target}}
+
+    if target not in state["classifications"]:
+        return {"name": "classify_run", "args": {"run_name": target}}
+
+    if state["report_path"] is None:
+        return {"name": "write_report", "args": {"run_name": target, "output_path": ""}}
+
+    return {"name": "finish", "args": {}}
