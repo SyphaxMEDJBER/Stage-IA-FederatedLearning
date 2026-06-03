@@ -1,6 +1,7 @@
-import requests
+import os
 import json
 import statistics
+import requests
 
 
 def ask_llm(prompt, model="phi3:mini", host="http://localhost:11434"):
@@ -155,3 +156,68 @@ def classify_run(signals):
         "scores":     score,
         "reasons":    reasons,
     }
+
+
+def write_report(run_name, run_data, signals, classification, llm_commentary, output_path):
+    """
+    génère un rapport markdown pour un run analysé
+    rassemble la config, les signaux, la classification et le commentaire du LLM
+    retourne le chemin du fichier créé
+    """
+    cfg  = run_data.get("config", {})
+
+    # on construit le rapport ligne par ligne sous forme de liste
+    lines = [
+        f"# Rapport d'analyse — {run_name}",
+        "",
+        "## Configuration",
+        "",
+        "| Paramètre | Valeur |",
+        "|---|---|",
+    ]
+    for k, v in cfg.items():
+        lines.append(f"| `{k}` | {v} |")   # une ligne par paramètre du run
+
+    # section classification : résultat et raisons du choix
+    lines += [
+        "",
+        "## Classification",
+        "",
+        f"**Résultat : `{classification['label'].upper()}`**  ",
+        f"**Confiance : {classification['confidence']:.0%}**",
+        "",
+        "**Indices détectés :**",
+    ]
+    for r in classification["reasons"]:
+        lines.append(f"- {r}")
+
+    # section signaux : les métriques calculées par compute_signals
+    lines += [
+        "",
+        "## Signaux clés",
+        "",
+        "| Signal | Valeur |",
+        "|---|---|",
+        f"| accuracy finale | {signals['final_accuracy']:.4f} |",
+        f"| accuracy max | {signals['max_accuracy']:.4f} |",
+        f"| loss finale | {signals['final_loss']:.4f} |",
+        f"| convergé | {signals['converged']} |",
+        f"| pente accuracy | {signals['accuracy_slope']:.5f} |",
+        f"| plus grande chute | {signals['max_accuracy_drop']:.4f} |",
+        f"| rounds en baisse | {signals['num_negative_deltas']} |",
+        f"| pics de loss | {signals['num_loss_increases']} |",
+        "",
+        "## Commentaire LLM",
+        "",
+        llm_commentary,   # texte retourné par ask_llm
+        "",
+        "---",
+        "*rapport généré par le ReAct agent*",
+    ]
+
+    # crée le dossier si nécessaire et écrit le fichier markdown
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines))
+
+    return output_path

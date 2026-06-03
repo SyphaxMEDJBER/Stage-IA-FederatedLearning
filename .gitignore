@@ -12,3 +12,4 @@ dashboard/outputs/
 fl_agent/reports/
 logs/
 ollama_setup.md
+test_tools.py
