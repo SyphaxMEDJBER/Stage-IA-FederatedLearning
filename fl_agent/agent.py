@@ -203,3 +203,103 @@ def get_fallback_action(state):
         return {"name": "write_report", "args": {"run_name": target, "output_path": ""}}
 
     return {"name": "finish", "args": {}}
+
+
+# ============================================================
+# 5. Boucle principale ReAct
+# ============================================================
+
+def run_agent(runs_dir, target_run="sample_run_clean"):
+    available = [f for f in os.listdir(runs_dir) if f.endswith(".json")] if os.path.isdir(runs_dir) else []
+
+    # état partagé entre toutes les itérations
+    state = {
+        "runs_dir":        runs_dir,
+        "available_files": available,
+        "target_run":      target_run,
+        "loaded_runs":     {},
+        "signals":         {},
+        "classifications": {},
+        "comparisons":     {},
+        "llm_responses":   [],
+        "report_path":     None,
+        "finished":        False,
+        "history":         [],
+    }
+
+    print(f"\n[Agent] démarrage — répertoire : {runs_dir}")
+    print(f"[Agent] fichiers disponibles : {available}")
+
+    for iteration in range(MAX_ITERATIONS):
+        print(f"\n[Agent] itération {iteration + 1}/{MAX_ITERATIONS}")
+
+        # on s'arrête si le rapport est écrit ou si l'agent a appelé finish()
+        if state["finished"] or state["report_path"]:
+            print("[Agent] tâche terminée.")
+            break
+
+        # on envoie l'état courant à Ollama pour décider la prochaine action
+        prompt   = build_prompt(state)
+        response = ask_llm(prompt)
+        print(f"[Agent] réponse Ollama (extrait) : {response[:150]}")
+
+        parsed = parse_action(response)
+
+        # si Ollama retourne du JSON malformé, on utilise le fallback
+        if parsed is None:
+            print("[Agent] réponse malformée — utilisation du fallback")
+            fallback = get_fallback_action(state)
+            if fallback is None:
+                print("[Agent] aucune action fallback disponible, arrêt.")
+                break
+            parsed = {"thought": "fallback automatique", "action": fallback}
+
+        thought = parsed.get("thought", "")
+        action  = parsed["action"]
+
+        observation = execute_tool(parsed, state)
+
+        print(f"[Agent] pensée   : {thought[:100]}")
+        print(f"[Agent] action   : {action['name']}")
+        print(f"[Agent] résultat : {observation[:150]}")
+
+        # on sauvegarde cette itération dans l'historique
+        state["history"].append({
+            "step":        iteration + 1,
+            "thought":     thought,
+            "action":      action,
+            "observation": observation,
+        })
+
+    # si on a épuisé les 10 itérations sans rapport, on en génère un quand même
+    if not state["report_path"]:
+        print("[Agent] max itérations atteint — génération du rapport de secours")
+        _fallback_report(state)
+
+    return state
+
+
+# ============================================================
+# 6. Rapport de secours si max_iterations atteint
+# ============================================================
+
+def _fallback_report(state):
+    # génère un rapport minimal avec ce qu'on a déjà calculé
+    for run_name, run_data in state["loaded_runs"].items():
+        if run_name not in state["signals"]:
+            state["signals"][run_name] = compute_signals(run_data)
+        if run_name not in state["classifications"]:
+            state["classifications"][run_name] = classify_run(state["signals"][run_name])
+
+        output_path = os.path.join(state["runs_dir"], "..", "fl_agent", "reports", f"{run_name}_analysis.md")
+        path = write_report(
+            run_name       = run_name,
+            run_data       = run_data,
+            signals        = state["signals"][run_name],
+            classification = state["classifications"][run_name],
+            llm_commentary = "[rapport de secours — max itérations atteint]",
+            output_path    = output_path,
+        )
+        state["report_path"] = path
+        print(f"[Agent] rapport de secours écrit : {path}")
+        break
