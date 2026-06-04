@@ -93,9 +93,20 @@ def execute_tool(parsed, state):
     name = parsed["action"]["name"]
     args = parsed["action"].get("args", {})
 
+    # ollama renvoie parfois args comme une liste au lieu d'un dict → on ignore
+    if not isinstance(args, dict):
+        args = {}
+
     try:
         if name == "load_run":
             path = args.get("path", "")
+            # si path est vide (args malformés), on cherche le run cible dans les fichiers disponibles
+            if not path:
+                target   = state["target_run"]
+                matching = [f for f in state["available_files"] if target in f]
+                path     = matching[0] if matching else (state["available_files"][0] if state["available_files"] else "")
+            if not path:
+                return "erreur : aucun fichier disponible à charger"
             if not os.path.isabs(path):                          # si chemin relatif, on le complète
                 path = os.path.join(state["runs_dir"], path)
             data     = load_run(path)
@@ -110,6 +121,9 @@ def execute_tool(parsed, state):
 
         elif name == "compute_signals":
             run_name = args.get("run_name", "")
+            # si run_name est vide ou malformé, on prend le run cible par défaut
+            if not run_name or run_name not in state["loaded_runs"]:
+                run_name = state["target_run"]
             if run_name not in state["loaded_runs"]:
                 return f"erreur : run '{run_name}' pas encore chargé"
             sig = compute_signals(state["loaded_runs"][run_name])
@@ -131,6 +145,9 @@ def execute_tool(parsed, state):
 
         elif name == "classify_run":
             run_name = args.get("run_name", "")
+            # si run_name est vide ou malformé, on prend le run cible par défaut
+            if not run_name or run_name not in state["signals"]:
+                run_name = state["target_run"]
             if run_name not in state["signals"]:
                 return f"erreur : signaux manquants pour '{run_name}'"
             result = classify_run(state["signals"][run_name])
@@ -148,8 +165,11 @@ def execute_tool(parsed, state):
         elif name == "write_report":
             run_name    = args.get("run_name", "")
             output_path = args.get("output_path", "")
+            # si run_name est vide ou malformé, on prend le run cible par défaut
+            if not run_name or run_name not in state["loaded_runs"]:
+                run_name = state["target_run"]
             if not output_path:
-                output_path = os.path.join(state["runs_dir"], "..", "fl_agent", "reports", f"{run_name}_analysis.md")
+                output_path = os.path.join(state["runs_dir"], "..", "..", "fl_agent", "reports", f"{run_name}_analysis.md")
             if run_name not in state["loaded_runs"]:
                 return f"erreur : run '{run_name}' pas chargé"
             if run_name not in state["signals"]:
@@ -254,6 +274,14 @@ def run_agent(runs_dir, target_run="sample_run_clean"):
                 break
             parsed = {"thought": "fallback automatique", "action": fallback}
 
+        # détection de blocage : même action 3 fois de suite → on force l'étape suivante
+        recent = [s["action"]["name"] for s in state["history"][-3:]]
+        if len(recent) == 3 and len(set(recent)) == 1 and recent[0] == parsed["action"]["name"]:
+            print(f"[Agent] blocage sur '{parsed['action']['name']}' — forçage du fallback")
+            fallback = get_fallback_action(state)
+            if fallback:
+                parsed = {"thought": "anti-blocage", "action": fallback}
+
         thought = parsed.get("thought", "")
         action  = parsed["action"]
 
@@ -291,7 +319,7 @@ def _fallback_report(state):
         if run_name not in state["classifications"]:
             state["classifications"][run_name] = classify_run(state["signals"][run_name])
 
-        output_path = os.path.join(state["runs_dir"], "..", "fl_agent", "reports", f"{run_name}_analysis.md")
+        output_path = os.path.join(state["runs_dir"], "..", "..", "fl_agent", "reports", f"{run_name}_analysis.md")
         path = write_report(
             run_name       = run_name,
             run_data       = run_data,
