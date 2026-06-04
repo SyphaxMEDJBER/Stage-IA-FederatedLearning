@@ -139,7 +139,8 @@ def classify_run(signals):
         reasons.append(f"pic de loss détecté ({signals['num_loss_increases']} rounds)")
 
     # indices non_iid : oscillations fréquentes, convergence lente
-    if signals["accuracy_variance"] > 0.001:
+    # seuil à 0.003 : en dessous c'est la variance normale d'un run clean qui monte régulièrement
+    if signals["accuracy_variance"] > 0.003:
         score["non_iid"] += 2
         reasons.append(f"variance élevée de l'accuracy ({signals['accuracy_variance']:.5f})")
     if signals["num_negative_deltas"] >= 2 and signals["max_accuracy_drop"] > -0.05:

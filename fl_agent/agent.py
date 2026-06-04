@@ -158,7 +158,14 @@ def execute_tool(parsed, state):
         elif name == "ask_llm":
             question = args.get("question", "")
             context  = args.get("context", "")
-            response = ask_llm(f"Contexte : {context}\n\nQuestion : {question}")
+            # on force Ollama à rester sur le sujet FedAvg avec un prompt structuré
+            forced_prompt = (
+                f"Tu es un expert en Federated Learning. Réponds uniquement sur le run FedAvg analysé.\n"
+                f"Contexte du run : {context}\n"
+                f"Question : {question}\n"
+                f"Réponse courte (3-5 phrases max), en français, uniquement sur ce run :"
+            )
+            response = ask_llm(forced_prompt)
             state["llm_responses"].append({"question": question, "response": response})
             return f"réponse LLM : {response[:200]}"
 
