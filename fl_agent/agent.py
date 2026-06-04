@@ -24,18 +24,36 @@ def build_prompt(state):
 
     loaded     = list(state["loaded_runs"].keys())
     classified = {k: v["label"] for k, v in state["classifications"].items()}
+    target     = state["target_run"]
+
+    # on calcule explicitement ce qui reste à faire pour guider Ollama
+    todo = []
+    if target not in state["loaded_runs"]:
+        todo.append(f"1. load_run(path='{target}.json')")
+    if target not in state["signals"]:
+        todo.append(f"2. compute_signals(run_name='{target}')")
+    if target not in state["classifications"]:
+        todo.append(f"3. classify_run(run_name='{target}')")
+    if not state["report_path"]:
+        todo.append(f"4. write_report(run_name='{target}', output_path='')")
+    if not todo:
+        todo.append("5. finish()")
+
+    todo_str = "\n".join(todo)
 
     # on injecte l'état courant + les outils disponibles dans le prompt
-    return f"""Tu es un agent d'analyse de runs FedAvg.
+    return f"""Tu es un agent d'analyse de runs FedAvg. Run cible : '{target}'
 
-Répertoire analysé : {state["runs_dir"]}
-Fichiers disponibles : {state["available_files"]}
-Runs chargés : {loaded}
-Signaux calculés pour : {list(state["signals"].keys())}
-Classifications : {classified}
-Rapport écrit : {state["report_path"] is not None}
+État actuel :
+- Runs chargés : {loaded}
+- Signaux calculés : {list(state["signals"].keys())}
+- Classifications : {classified}
+- Rapport écrit : {state["report_path"] is not None}
 
-Historique :
+Prochaines étapes OBLIGATOIRES dans cet ordre :
+{todo_str}
+
+Historique récent :
 {history_str}
 
 Outils disponibles :
@@ -47,6 +65,7 @@ Outils disponibles :
 6. write_report(run_name, output_path) - génère le rapport markdown
 7. finish()                            - termine l'analyse
 
+Fais UNIQUEMENT la première étape de la liste ci-dessus.
 Réponds UNIQUEMENT en JSON valide, sans texte autour :
 {{
   "thought": "ce que tu penses faire et pourquoi",
@@ -135,7 +154,10 @@ def execute_tool(parsed, state):
 
         elif name == "compare_runs":
             run_names = args.get("run_names", [])
-            missing   = [n for n in run_names if n not in state["loaded_runs"]]
+            # si run_names est vide ou malformé, on compare tous les runs chargés
+            if not isinstance(run_names, list) or not run_names:
+                run_names = list(state["loaded_runs"].keys())
+            missing = [n for n in run_names if n not in state["loaded_runs"]]
             if missing:
                 return f"erreur : runs pas chargés : {missing}"
             subset = {n: state["loaded_runs"][n] for n in run_names}
