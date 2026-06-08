@@ -2,6 +2,45 @@ import os
 import json
 import statistics
 import requests
+from dotenv import load_dotenv
+from google import genai as google_genai
+from groq import Groq
+
+load_dotenv()
+
+def ask_groq(prompt, model="llama-3.1-8b-instant"):
+    """
+    envoie un prompt à l'API Groq et retourne la réponse
+    utilise la clé GROQ_API_KEY du fichier .env
+    """
+    try:
+        api_key = os.getenv("GROQ_API_KEY")
+        if not api_key:
+            return "[GROQ_API_KEY manquante dans .env]"
+        client   = Groq(api_key=api_key)
+        response = client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        return f"[Erreur Groq : {e}]"
+
+
+def ask_gemini(prompt, model="gemini-2.0-flash-lite"):
+    """
+    envoie un prompt à l'API Gemini et retourne la réponse
+    utilise la clé GEMINI_API_KEY du fichier .env
+    """
+    try:
+        api_key = os.getenv("GEMINI_API_KEY")
+        if not api_key:
+            return "[GEMINI_API_KEY manquante dans .env]"
+        client   = google_genai.Client(api_key=api_key)
+        response = client.models.generate_content(model=model, contents=prompt)
+        return response.text
+    except Exception as e:
+        return f"[Erreur Gemini : {e}]"
 
 
 def ask_llm(prompt, model="mistral:7b-instruct", host="http://localhost:11434"):
