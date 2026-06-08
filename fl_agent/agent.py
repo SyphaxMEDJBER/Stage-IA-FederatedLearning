@@ -128,6 +128,11 @@ def execute_tool(parsed, state):
                 return "erreur : aucun fichier disponible à charger"
             if not os.path.isabs(path):                          # si chemin relatif, on le complète
                 path = os.path.join(state["runs_dir"], path)
+            # si le fichier n'existe pas, on cherche le run cible dans les fichiers disponibles
+            if not os.path.exists(path):
+                target   = state["target_run"]
+                matching = [f for f in state["available_files"] if target in f]
+                path     = os.path.join(state["runs_dir"], matching[0]) if matching else path
             data     = load_run(path)
             run_name = os.path.splitext(os.path.basename(path))[0]
             state["loaded_runs"][run_name] = data                # on stocke le run dans l'état
@@ -205,7 +210,11 @@ def execute_tool(parsed, state):
                 return f"erreur : signaux manquants pour '{run_name}'"
             if run_name not in state["classifications"]:
                 return f"erreur : classification manquante pour '{run_name}'"
-            commentary = "\n".join(r["response"] for r in state["llm_responses"]) or "aucun commentaire LLM"
+            # on filtre les réponses de débogage (chemin, fichier introuvable...) pour garder uniquement l'analyse
+            mots_debug = ["fichier", "chemin", "introuvable", "impossible de déterminer", "n'est pas spécifié"]
+            analyses   = [r["response"] for r in state["llm_responses"]
+                          if not any(m in r["response"].lower() for m in mots_debug)]
+            commentary = "\n".join(analyses) or "aucun commentaire LLM"
             path = write_report(
                 run_name       = run_name,
                 run_data       = state["loaded_runs"][run_name],
@@ -247,6 +256,20 @@ def get_fallback_action(state):
 
     if target not in state["classifications"]:
         return {"name": "classify_run", "args": {"run_name": target}}
+
+    # si pas encore de commentaire LLM, on en demande un avant d'écrire le rapport
+    if not state["llm_responses"] and target in state["classifications"]:
+        sig = state["signals"].get(target, {})
+        clf = state["classifications"].get(target, {})
+        context = (f"run='{target}', label={clf.get('label')}, "
+                   f"confiance={clf.get('confidence')}, "
+                   f"accuracy_finale={sig.get('final_accuracy'):.3f}, "
+                   f"max_drop={sig.get('max_accuracy_drop'):.3f}, "
+                   f"convergé={sig.get('converged')}")
+        return {"name": "ask_llm", "args": {
+            "question": f"Explique en 3 phrases pourquoi ce run FedAvg est classifié '{clf.get('label')}'.",
+            "context": context,
+        }}
 
     if state["report_path"] is None:
         return {"name": "write_report", "args": {"run_name": target, "output_path": ""}}

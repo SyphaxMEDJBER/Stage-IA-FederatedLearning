@@ -4,14 +4,14 @@ import statistics
 import requests
 
 
-def ask_llm(prompt, model="phi3:mini", host="http://localhost:11434"):
+def ask_llm(prompt, model="mistral:7b-instruct", host="http://localhost:11434"):
     """
     envoie un prompt au LLM local (Ollama) et retourne la réponse
     si ollama est pas lancé ça retourne un message d'erreur au lieu de planter
     model par défaut : phi3:mini, host par défaut : localhost:11434
     """
     try:
-        resp = requests.post(
+        resp = requests.post(     # requette http
             f"{host}/api/generate",          # endpoint HTTP d'Ollama
             json={
                 "model": model,
@@ -35,11 +35,11 @@ def load_run(path):
     vérifie que les clés obligatoires sont là avant de retourner les données
     lève une ValueError si une clé est manquante
     """
-    with open(path, encoding="utf-8") as f:
-        data = json.load(f)
+    with open(path, encoding="utf-8") as f: #on ouvre le fichier en lecture , avec with il se fermera auto
+        data = json.load(f) #lit le fichier et le convertit en dictionnaire python
 
-    for key in ("config", "rounds", "global_accuracy", "global_loss"):
-        if key not in data:
+    for key in ("config", "rounds", "global_accuracy", "global_loss"):# on verifie que les 4 clés essentielles sont presentes 
+        if key not in data:# si une manque on lève une exception 
             raise ValueError(f"Clé manquante '{key}' dans {path}")
 
     return data
@@ -47,23 +47,24 @@ def load_run(path):
 
 def compute_signals(run_data):
     """
+    prends le dictionnaire retourné par load_run
     calcule les signaux diagnostics à partir des courbes accuracy/loss
     retourne un dictionnaire de métriques pour aider à classifier le run
     """
-    acc  = run_data["global_accuracy"]
-    loss = run_data["global_loss"]
-    n    = len(acc)
+    acc  = run_data["global_accuracy"] # liste des accuracy 
+    loss = run_data["global_loss"] # liste des loss
+    n    = len(acc) # nombre de rounds
 
     # variation d'accuracy et de loss entre chaque round
     acc_deltas  = [acc[i]  - acc[i - 1] for i in range(1, n)]
     loss_deltas = [loss[i] - loss[i - 1] for i in range(1, len(loss))]
 
     # pente moyenne de l'accuracy sur tous les rounds (régression linéaire simple)
-    if n > 1:
-        xm    = (n - 1) / 2.0
-        ym    = sum(acc) / n
-        num   = sum((i - xm) * (acc[i] - ym) for i in range(n))
-        den   = sum((i - xm) ** 2 for i in range(n))
+    if n > 1: # il faut au moins 2 points pour tracer une droite 
+        xm    = (n - 1) / 2.0 # la moyenne des positions (numeros des rounds)
+        ym    = sum(acc) / n # la moyenne des accuracy
+        num   = sum((i - xm) * (acc[i] - ym) for i in range(n))# pour chaque round on multiplie l'ecart du round parraport zu centre par l'eccart du laccuracy paraport a la moyenne   
+        den   = sum((i - xm) ** 2 for i in range(n))# normaliser le resultat
         slope = num / den if den else 0.0
     else:
         slope = 0.0
