@@ -140,6 +140,15 @@ class InstrumentedFedAvg(fl.server.strategy.FedAvg):
 # Main simulation
 # ---------------------------------------------------------------------------
 
+def _weighted_average(metrics):
+    """Aggregate accuracy from clients using weighted average."""
+    accuracies = [n * m["accuracy"] for n, m in metrics if "accuracy" in m]
+    examples = [n for n, m in metrics if "accuracy" in m]
+    if not examples:
+        return {"accuracy": 0.0}
+    return {"accuracy": sum(accuracies) / sum(examples)}
+
+
 def _check_convergence(acc: list, window: int = 3, threshold: float = 0.005) -> bool:
     if len(acc) < window + 1:
         return False
@@ -183,6 +192,7 @@ def run_simulation(
         min_evaluate_clients=min_eval,
         min_available_clients=num_clients,
         initial_parameters=initial_params,
+        evaluate_metrics_aggregation_fn=_weighted_average,
     )
 
     cb(f"[Runner] Starting Flower FedAvg simulation ({num_rounds} rounds, {num_clients} clients)...")
