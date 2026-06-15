@@ -2,7 +2,7 @@ import os
 import json
 import re
 
-from tools import load_run, compute_signals, compare_runs, classify_run, ask_llm, write_report
+from tools import load_run, compute_signals, compare_runs, classify_run, ask_llm, ask_groq, write_report
 
 MAX_ITERATIONS = 10
 
@@ -192,7 +192,7 @@ def execute_tool(parsed, state):
                 f"Question : {question}\n"
                 f"Réponse courte (3-5 phrases max), en français, uniquement sur ce run :"
             )
-            response = ask_llm(forced_prompt)
+            response = ask_groq(forced_prompt)
             state["llm_responses"].append({"question": question, "response": response})
             return f"réponse LLM : {response[:200]}"
 
@@ -210,7 +210,19 @@ def execute_tool(parsed, state):
                 return f"erreur : signaux manquants pour '{run_name}'"
             if run_name not in state["classifications"]:
                 return f"erreur : classification manquante pour '{run_name}'"
-            # on filtre les réponses de débogage (chemin, fichier introuvable...) pour garder uniquement l'analyse
+            # si pas encore de commentaire LLM, on en génère un automatiquement
+            if not state["llm_responses"]:
+                sig = state["signals"].get(run_name, {})
+                clf = state["classifications"].get(run_name, {})
+                auto_prompt = (
+                    f"Tu es un expert en Federated Learning. Réponds uniquement sur ce run FedAvg.\n"
+                    f"Run : '{run_name}', classification : {clf.get('label')}, confiance : {clf.get('confidence'):.0%}\n"
+                    f"Accuracy finale : {sig.get('final_accuracy'):.3f}, plus grande chute : {sig.get('max_accuracy_drop'):.3f}, convergé : {sig.get('converged')}\n"
+                    f"Explique en 3 phrases pourquoi ce run est classifié '{clf.get('label')}' :"
+                )
+                auto_response = ask_groq(auto_prompt)
+                state["llm_responses"].append({"question": "auto", "response": auto_response})
+            # on filtre les réponses de débogage pour garder uniquement l'analyse
             mots_debug = ["fichier", "chemin", "introuvable", "impossible de déterminer", "n'est pas spécifié"]
             analyses   = [r["response"] for r in state["llm_responses"]
                           if not any(m in r["response"].lower() for m in mots_debug)]
@@ -310,10 +322,10 @@ def run_agent(runs_dir, target_run="sample_run_clean"):
             print("[Agent] tâche terminée.")
             break
 
-        # on envoie l'état courant à Ollama pour décider la prochaine action
+        # on envoie l'état courant à Groq pour décider la prochaine action
         prompt   = build_prompt(state)
-        response = ask_llm(prompt)
-        print(f"[Agent] réponse Ollama (extrait) : {response[:150]}")
+        response = ask_groq(prompt)
+        print(f"[Agent] réponse Groq (extrait) : {response[:150]}")
 
         parsed = parse_action(response)
 
@@ -326,10 +338,10 @@ def run_agent(runs_dir, target_run="sample_run_clean"):
                 break
             parsed = {"thought": "fallback automatique", "action": fallback}
 
-        # détection de blocage : même action 3 fois de suite → on force l'étape suivante
-        recent = [s["action"]["name"] for s in state["history"][-3:]]
-        if len(recent) == 3 and len(set(recent)) == 1 and recent[0] == parsed["action"]["name"]:
-            print(f"[Agent] blocage sur '{parsed['action']['name']}' — forçage du fallback")
+        # détection de blocage : même action 3+ fois dans les 6 dernières itérations → on force l'étape suivante
+        action_count = sum(1 for s in state["history"][-6:] if s["action"]["name"] == parsed["action"]["name"])
+        if action_count >= 3:
+            print(f"[Agent] blocage sur '{parsed['action']['name']}' ({action_count}x) — forçage du fallback")
             fallback = get_fallback_action(state)
             if fallback:
                 parsed = {"thought": "anti-blocage", "action": fallback}
